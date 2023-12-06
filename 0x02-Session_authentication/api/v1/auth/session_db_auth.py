@@ -1,57 +1,67 @@
 #!/usr/bin/env python3
-"""Define class SessionDButh"""
-from .session_exp_auth import SessionExpAuth
+"""Module for session database authentication"""
+from datetime import datetime, timedelta
+
 from models.user_session import UserSession
+
+from .session_exp_auth import SessionExpAuth
 
 
 class SessionDBAuth(SessionExpAuth):
-    """
-    Definition of SessionDBAuth class that persists session data
-    in a database
+    """Session authentication class with database storage & expiration support
     """
 
-    def create_session(self, user_id=None):
-        """
-        Create a Session ID for a user_id
+    def create_session(self, user_id: str) -> str:
+        """Creates and stores a session id for the user.
         Args:
-           user_id (str): user id
+            user_id (str): User id to be associated with the session.
+        Returns:
+            str: Session id.
         """
         session_id = super().create_session(user_id)
-        if not session_id:
-            return None
-        kw = {
-            "user_id": user_id,
-            "session_id": session_id
-        }
-        user = UserSession(**kw)
-        user.save()
-        return session_id
 
-    def user_id_for_session_id(self, session_id=None):
-        """
-        Returns a user ID based on a session ID
+        if isinstance(session_id, str):
+            kwargs = {
+                'user_id': user_id,
+                'session_id': session_id,
+            }
+            user_session = UserSession(**kwargs)
+            user_session.save()
+            return session_id
+
+    def user_id_for_session_id(self, session_id: str) -> str:
+        """Retrieves the user id of the user associated with given session id.
         Args:
-            session_id (str): session ID
-        Return:
-            user id or None if session_id is None or not a string
+            session_id (str): Session id.
+        Returns:
+            str: User id associated with the session id.
         """
-        user_id = UserSession.search({"session_id": session_id})
-        if user_id:
-            return user_id
-        return None
+        try:
+            sessions = UserSession.search({'session_id': session_id})
+        except Exception:
+            return None
+        if len(sessions) <= 0:
+            return None
+        cur_time = datetime.now()
+        time_span = timedelta(seconds=self.session_duration)
+        exp_time = sessions[0].created_at + time_span
+        if exp_time < cur_time:
+            return None
+        return sessions[0].user_id
 
-    def destroy_session(self, request=None):
+    def destroy_session(self, request=None) -> bool:
+        """Destroys an authenticated session.
+        Args:
+            request (Request): Request object.
+        Returns:
+            bool: Indicates if the session was destroyed successfully.
         """
-        Destroy a UserSession instance based on a
-        Session ID from a request cookie
-        """
-        if request is None:
-            return False
         session_id = self.session_cookie(request)
-        if not session_id:
+        try:
+            sessions = UserSession.search({'session_id': session_id})
+        except Exception:
             return False
-        user_session = UserSession.search({"session_id": session_id})
-        if user_session:
-            user_session[0].remove()
-            return True
-        return False
+        if len(sessions) <= 0:
+            return False
+        sessions[0].remove()
+        return True
